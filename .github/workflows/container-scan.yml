@@ -1,0 +1,41 @@
+name: "Container Image Security Scan"
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_name:
+        description: "Container image name to scan"
+        required: true
+        default: "nginx:latest"
+
+jobs:
+  scan-container:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'image'
+          image-ref: ${{ github.event.inputs.image_name }}
+          format: 'json'
+          output: 'outputs/reports/trivy-scan.json'
+
+      - name: Install Dockle
+        run: |
+          curl -sL https://github.com/goodwithtech/dockle/releases/latest/download/dockle_0.4.15_Linux-64bit.tar.gz | tar xz
+          sudo mv dockle /usr/local/bin/
+
+      - name: Run Dockle Scan
+        run: bash scans/dockle-scan.sh ${{ github.event.inputs.image_name }}
+
+      - name: Upload Compliance Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: container-compliance-reports
+          path: outputs/reports/

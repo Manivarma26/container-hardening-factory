@@ -1,0 +1,6 @@
+rules:
+  no_root_user: true
+  healthcheck_defined: true
+  secrets_in_env: false
+  capabilities_dropped: true
+  readonly_rootfs: true

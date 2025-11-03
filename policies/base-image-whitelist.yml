@@ -1,0 +1,10 @@
+approved_base_images:
+  - public.ecr.aws/ubuntu/ubuntu:22.04
+  - public.ecr.aws/amazonlinux/amazonlinux:2023
+  - registry.access.redhat.com/ubi9/ubi-minimal:latest
+  - alpine:3.19
+
+disallowed_images:
+  - ubuntu:latest
+  - centos:latest
+  - debian:latest

@@ -1,0 +1,31 @@
+name: "Container Policy Validation"
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "policies/**"
+      - "scripts/validate-container-policies.py"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "policies/**"
+  workflow_dispatch: {}
+
+jobs:
+  validate-policies:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Validate container governance policies
+        run: python3 scripts/validate-container-policies.py

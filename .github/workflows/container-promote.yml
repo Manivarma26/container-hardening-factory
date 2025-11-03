@@ -1,0 +1,67 @@
+name: "Container Image Governance & Promotion"
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_name:
+        description: "Container image name (e.g. myapp:latest)"
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-validate-promote:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::661539128717:role/TerraformGitHubOIDCRole
+          aws-region: ap-south-1
+
+      - name: Validate Container Governance Policies
+        run: python3 scripts/validate-container-policies.py
+
+      - name: Run Trivy & Dockle Scans
+        run: |
+          bash scans/trivy-container-scan.sh ${{ github.event.inputs.image_name }}
+          bash scans/dockle-scan.sh ${{ github.event.inputs.image_name }}
+
+      - name: Evaluate Scan Results
+        run: |
+          echo "🔎 Evaluating compliance thresholds..."
+          HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")] | length' outputs/reports/trivy-${{ github.event.inputs.image_name//[:\/]/_ }}.json)
+          CRIT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' outputs/reports/trivy-${{ github.event.inputs.image_name//[:\/]/_ }}.json)
+          echo "Critical: $CRIT | High: $HIGH"
+          if [ "$CRIT" -gt 0 ] || [ "$HIGH" -gt 2 ]; then
+            echo "❌ Compliance failed. Blocking promotion."
+            exit 1
+          fi
+          echo "✅ Scan thresholds met — promotion allowed."
+
+      - name: Tag & Push to ECR
+        env:
+          AWS_REGION: ap-south-1
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REPO="manivarma-secops-hardened"
+          IMAGE=${{ github.event.inputs.image_name }}
+          echo "🚀 Pushing image $IMAGE to ECR repo: $ECR_REPO"
+          aws ecr describe-repositories --repository-names $ECR_REPO || \
+            aws ecr create-repository --repository-name $ECR_REPO
+          docker tag $IMAGE $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+          docker push $ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$ECR_REPO:$IMAGE
+
+      - name: Upload Compliance Reports to S3
+        uses: aws-actions/s3-sync@v2
+        with:
+          source-dir: outputs/reports/
+          dest-dir: container-compliance/${{ github.event.inputs.image_name }}/
+          args: --acl private --follow-symlinks
